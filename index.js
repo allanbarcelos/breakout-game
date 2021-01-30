@@ -207,6 +207,8 @@ function checkForCollisions() {
             // check win
             if (blocks.length === 0) {
                 level++;
+                var ref = db.ref();
+                ref.child(userName.value).child('level').set(level);
                 levelDisplay.innerHTML = level;
                 clearInterval(timerId);
                 timerId = setInterval(moveBall, 30 / level);
