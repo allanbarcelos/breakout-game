@@ -1,14 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Breakout Game</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-    <div id="score"></div>
+    User name: <input type="text" id="userName" maxlength="5" /> <button id="buttonStart" onclick="start()">Start</button>
+    Score: <span id="score"></span>
+    Level: <span id="level"></span>
+    <a id="restart" class="hide" href="/">Restart</a>
     <div class="grid"></div>
+
+    <table id="scoreboard" border="1">
+        <thead>
+            <tr>
+                <td>User</td>
+                <td>Level</td>
+                <td>Score</td>
+            </tr>
+        </thead>
+        <tbody id="scoreboard-body">
+
+        </tbody>
+    </table>
+
+
+
+    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-firestore.js"></script>
+
     <script src="index.js"></script>
 </body>
+
 </html>
