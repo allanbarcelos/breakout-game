@@ -122,13 +122,13 @@ function moveUser(e) {
     switch (e.key) {
         case 'ArrowLeft':
             if (userCurrentPosition[0] > 0) {
-                userCurrentPosition[0] -= 10;
+                userCurrentPosition[0] -= 15;
                 drawUser();
             }
             break;
         case 'ArrowRight':
             if (userCurrentPosition[0] < boardWidth - blockWidth) {
-                userCurrentPosition[0] += 10;
+                userCurrentPosition[0] += 15;
                 drawUser();
             }
             break;
