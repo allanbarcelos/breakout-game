@@ -1,18 +1,8 @@
-var firebaseConfig = {
-    apiKey: "AIzaSyBKtymlmkispgHwiN6P-TTLgwzMdKl0fA0",
-    authDomain: "breakout-game-aafdf.firebaseapp.com",
-    databaseURL: "https://breakout-game-aafdf-default-rtdb.firebaseio.com",
-    projectId: "breakout-game-aafdf",
-    storageBucket: "breakout-game-aafdf.appspot.com",
-    messagingSenderId: "299922869043",
-    appId: "1:299922869043:web:ca1885c8ab4470a6840c46"
-};
-var app = firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
+const firebaseConfig = import('./firebase.config');
+const Block = import('./block.class');
 
-
-
-
+const app = firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
 const grid = document.querySelector('.grid');
 const scoreDisplay = document.querySelector('#score');
@@ -46,21 +36,10 @@ let level = 1;
 scoreDisplay.innerHTML = score;
 levelDisplay.innerHTML = level;
 
-// creare block
-class Block {
-    constructor(xAxis, yAxis) {
-        this.bottomLeft = [xAxis, yAxis];
-        this.bottomRight = [xAxis + blockWidth, yAxis];
-        this.topLeft = [xAxis, yAxis + blockHeight];
-        this.topRight = [xAxis + blockWidth, yAxis + blockHeight];
-    }
-}
-
 // all blocks
 let blocks;
 
 function createBlocks() {
-
     blocks = [
         new Block(10, 270),
         new Block(120, 270),
@@ -80,7 +59,6 @@ function createBlocks() {
         new Block(340, 210),
         new Block(450, 210),
     ];
-
 }
 
 
@@ -135,19 +113,15 @@ function moveUser(e) {
     }
 }
 
-
-
 document.addEventListener('keydown', moveUser);
 
 // add ball
-
 const ball = document.createElement('div');
 ball.classList.add('ball');
 drawBall();
 grid.appendChild(ball);
 
 // move ball
-
 function moveBall() {
     ballCurrentPosition[0] += xDirection;
     ballCurrentPosition[1] += yDirection;
@@ -155,13 +129,10 @@ function moveBall() {
     checkForCollisions();
 }
 
-
 function start() {
-
     if (userName.value.length > 2 && userName.value.length < 6) {
         // Get a database reference to our posts
         var ref = db.ref();
-
         // Attach an asynchronous callback to read the data at our posts reference
         ref.once('value', function (snapshot) {
             if (!snapshot.hasChild(userName.value)) {
@@ -177,18 +148,13 @@ function start() {
         });
     } else {
         alert('User name must be 3 to 5 characters')
-
     }
-
-
 }
 
 // check for collisions
-
 function checkForCollisions() {
 
     // check for block collisions
-
     for (let i = 0; i < blocks.length; i++) {
         if (
             (ballCurrentPosition[0] > blocks[i].bottomLeft[0] && ballCurrentPosition[0] < blocks[i].bottomRight[0]) &&
@@ -227,8 +193,8 @@ function checkForCollisions() {
     ) {
         changeDirection();
     }
-    // check for user collision
 
+    // check for user collision
     if (
         (ballCurrentPosition[0] > userCurrentPosition[0] && ballCurrentPosition[0] < userCurrentPosition[0] + blockWidth) &&
         (ballCurrentPosition[1] > userCurrentPosition[1] && ballCurrentPosition[1] < userCurrentPosition[1] + blockHeight)
@@ -237,13 +203,13 @@ function checkForCollisions() {
     }
 
     // check for game over
-
     if (ballCurrentPosition[1] <= 0) {
         clearInterval(timerId);
         scoreDisplay.innerHTML = 'You lose';
         document.removeEventListener('keydown', moveUser);
         restart.classList.remove('hide');
     }
+
 }
 
 function changeDirection() {
