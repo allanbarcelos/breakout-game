@@ -1,4 +1,4 @@
-export default firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyBKtymlmkispgHwiN6P-TTLgwzMdKl0fA0",
   authDomain: "breakout-game-aafdf.firebaseapp.com",
   databaseURL: "https://breakout-game-aafdf-default-rtdb.firebaseio.com",
