@@ -1,5 +1,5 @@
-const firebaseConfig = import('./firebase.config');
-const Block = import('./block.class');
+const firebaseConfig = import('./firebase.config.js');
+const Block = import('./block.class.js');
 
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
