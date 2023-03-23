@@ -1,4 +1,5 @@
 const firebaseConfig = import('./firebase.config.js');
+console.log(firebaseConfig);
 const Block = import('./block.class.js');
 
 const app = firebase.initializeApp(firebaseConfig);
