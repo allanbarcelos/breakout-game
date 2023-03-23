@@ -1,6 +1,25 @@
-const firebaseConfig = import('./firebase.config.js');
-console.log(firebaseConfig);
-const Block = import('./block.class.js');
+// Firebase config
+
+const firebaseConfig = {
+    databaseURL: "https://breakout-game-386f7-default-rtdb.firebaseio.com/",
+    apiKey: "AIzaSyDWzcsOdly5LrUHji6Kh0KQW_zLmGqba4M",
+    authDomain: "breakout-game-386f7.firebaseapp.com",
+    projectId: "breakout-game-386f7",
+    storageBucket: "breakout-game-386f7.appspot.com",
+    messagingSenderId: "551755245883",
+    appId: "1:551755245883:web:e7b36b452e0826bab96f1e"
+  };
+
+class Block {
+    constructor(xAxis, yAxis) {
+        this.bottomLeft = [xAxis, yAxis];
+        this.bottomRight = [xAxis + blockWidth, yAxis];
+        this.topLeft = [xAxis, yAxis + blockHeight];
+        this.topRight = [xAxis + blockWidth, yAxis + blockHeight];
+    }
+}
+
+// --
 
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
