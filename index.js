@@ -1,4 +1,4 @@
-let ws = new WebSocket("ws://localhost:9900");
+let ws = new WebSocket("ws://45.42.200.181:9900");
 
 let userId;
 const gameId = 'breakout';
