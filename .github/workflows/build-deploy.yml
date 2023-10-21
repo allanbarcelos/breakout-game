@@ -1,0 +1,62 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+env:
+  PRODUCTION: true
+  # HTTPS: true
+  # API: https://api.barcelos.dev
+
+jobs:
+  test-build-deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: GuillaumeFalourd/setup-rsync@v1.1
+
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: unnecessary
+
+      - name: Adding Known Hosts
+        run: ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }}  >> ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        run: ssh -T ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+
+      - name: Delete OLD Folder
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            folder="${{secrets.HOME}}/breakout-game.barcelos.dev"
+            if [ -d "$folder" ]; then
+              rm -Rf ${{ secrets.HOME }}/breakout-game.barcelos.dev
+            fi
+
+      - name: Deploy with rsync
+        run: |
+          rsync --progress -avz -e "ssh -v -i ~/.ssh/id_rsa" ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.HOME }}/breakout-game.barcelos.dev/
+
+      - name: Restart Nginx
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            systemctl restart nginx

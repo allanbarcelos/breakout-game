@@ -1,14 +1,56 @@
-// Firebase config
+let ws = new WebSocket("ws://localhost:9900");
 
-const firebaseConfig = {
-    databaseURL: "https://breakout-game-386f7-default-rtdb.firebaseio.com/",
-    apiKey: "AIzaSyDWzcsOdly5LrUHji6Kh0KQW_zLmGqba4M",
-    authDomain: "breakout-game-386f7.firebaseapp.com",
-    projectId: "breakout-game-386f7",
-    storageBucket: "breakout-game-386f7.appspot.com",
-    messagingSenderId: "551755245883",
-    appId: "1:551755245883:web:e7b36b452e0826bab96f1e"
-  };
+let userId;
+const gameId = 'breakout';
+
+ws.onopen = function () {
+    ws.send(`/get-scores ${gameId}`);
+    console.log("Connected to the WebSocket server.");
+};
+
+ws.onmessage = function (event) {
+    const payload = JSON.parse(event.data)?.payload;
+    
+    if(payload === 'register' ){
+        userId = JSON.parse(event.data)?.user_id;
+    }
+
+};
+
+ws.onerror = function (error) {
+    console.error("WebSocket Error: ", error);
+}
+
+function registerUser() {
+    const username = document.getElementById('username').value;
+
+    if (username.length !== 5) {
+        alert('Username should be exactly 5 characters.');
+        return;
+    }
+
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(`/register ${username} ${gameId}`);
+    }
+
+    return true;
+}
+
+function getScores() {
+    if (ws.readyState === WebSocket.OPEN) {
+        console.log("ok");
+        ws.send(`/get-scores ${gameId}`);
+    }
+}
+
+function setScore() {
+    // const userId = document.getElementById('userId').value;
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(`/set-score ${userId}`);
+    }
+}
+
+// 
 
 class Block {
     constructor(xAxis, yAxis) {
@@ -21,15 +63,12 @@ class Block {
 
 // --
 
-const app = firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
 const grid = document.querySelector('.grid');
 const scoreDisplay = document.querySelector('#score');
 const levelDisplay = document.querySelector('#level');
 const bodyScoreBoard = document.querySelector('#scoreboard-body');
 
-const userName = document.querySelector('#userName');
+const userName = document.querySelector('#username');
 const buttonStart = document.querySelector('#buttonStart');
 const restart = document.querySelector('#restart');
 
@@ -150,25 +189,12 @@ function moveBall() {
 }
 
 function start() {
-    if (userName.value.length > 2 && userName.value.length < 6) {
-        // Get a database reference to our posts
-        var ref = db.ref();
-        // Attach an asynchronous callback to read the data at our posts reference
-        ref.once('value', function (snapshot) {
-            if (!snapshot.hasChild(userName.value)) {
-                timerId = setInterval(moveBall, 20 / level);
-                var ref = db.ref();
-                ref.child(userName.value).child('level').set(1);
-                ref.child(userName.value).child('score').set(0);
-                userName.setAttribute('disabled', true);
-                buttonStart.setAttribute('disabled', true);
-            } else {
-                alert('this username has already been used')
-            }
-        });
-    } else {
-        alert('User name must be 3 to 5 characters')
+    if(registerUser()){
+        timerId = setInterval(moveBall, 20 / level);
+        userName.setAttribute('disabled', true);
+        buttonStart.setAttribute('disabled', true); 
     }
+
 }
 
 // check for collisions
@@ -185,16 +211,16 @@ function checkForCollisions() {
             blocks.splice(i, 1);
             changeDirection();
             score++;
-            var ref = db.ref();
-            ref.child(userName.value).child('score').set(score);
-
+            // var ref = db.ref();
+            // ref.child(userName.value).child('score').set(score);
+            setScore()
             scoreDisplay.innerHTML = score;
 
             // check win
             if (blocks.length === 0) {
                 level++;
-                var ref = db.ref();
-                ref.child(userName.value).child('level').set(level);
+                // var ref = db.ref();
+                // ref.child(userName.value).child('level').set(level);
                 levelDisplay.innerHTML = level;
                 clearInterval(timerId);
                 timerId = setInterval(moveBall, 30 / level);
@@ -260,38 +286,33 @@ getUsersScores();
 
 function getUsersScores() {
 
-    // Get a database reference to our posts
-    var ref = db.ref();
+    getScores();
+    ws.onmessage = function (event) {
+        const payload = JSON.parse(event.data)?.payload;
+        console.log(event);
+        if(payload === 'get-scores' || payload === 'set-score' ){
 
-    // Attach an asynchronous callback to read the data at our posts reference
-    ref.on("value", function (snapshot) {
-        bodyScoreBoard.innerHTML = '';
-        let sorted = {};
-        if (snapshot.val() !== null) {
+            bodyScoreBoard.innerHTML = '';
+            if (JSON.parse(event.data)?.data.length > 0) {
 
-            Object
-                .keys(snapshot.val()).sort(function (a, b) {
-                    return snapshot.val()[b].score - snapshot.val()[a].score;
-                })
-                .forEach(function (key) {
-                    sorted[key] = snapshot.val()[key];
+                JSON.parse(event.data)?.data.forEach(({score, username}) => {
+                    const row = document.createElement('tr');
+                    const tdUser = document.createElement('td');
+                    tdUser.innerHTML = username;
+                    row.appendChild(tdUser);
+                    // for (const [key, value] of Object.entries(uservalue)) {
+                        const td = document.createElement('td');
+                        td.innerHTML = score;
+                        row.appendChild(td);
+                    // }
+                    bodyScoreBoard.appendChild(row);
                 });
-            for (const [userkey, uservalue] of Object.entries(sorted)) {
-                const row = document.createElement('tr');
-                const tdUser = document.createElement('td');
-                tdUser.innerHTML = userkey;
-                row.appendChild(tdUser);
-                for (const [key, value] of Object.entries(uservalue)) {
-                    const td = document.createElement('td');
-                    td.innerHTML = value;
-                    row.appendChild(td);
-                }
-                bodyScoreBoard.appendChild(row);
+
             }
 
+
         }
-    }, function (errorObject) {
-        console.log("The read failed: " + errorObject.code);
-    });
+
+    };
 
 }
