@@ -1,5 +1,5 @@
 // let ws = new WebSocket("wss://45.42.200.181:9900");
-let ws = new WebSocket("https://game-api.barcelos.dev");
+let ws = new WebSocket("wss://game-api.barcelos.dev");
 
 let userId;
 const gameId = 'breakout';
