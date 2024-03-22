@@ -5,18 +5,43 @@ let userId;
 const gameId = 'breakout';
 
 ws.onopen = function () {
-    ws.send(`/get-scores ${gameId}`);
+
     console.log("Connected to the WebSocket server.");
+
+    ws.send(`/get-scores ${gameId}`);
+
+    ws.onmessage = function (event) {
+        const payload = JSON.parse(event.data)?.payload;
+
+        if(payload === 'register' ){
+            userId = JSON.parse(event.data)?.user_id;
+        }
+
+        if(payload === 'get-scores' || payload === 'set-score' ){
+
+            bodyScoreBoard.innerHTML = '';
+            if (JSON.parse(event.data)?.data.length > 0) {
+
+                JSON.parse(event.data)?.data.forEach(({score, username}) => {
+                    const row = document.createElement('tr');
+                    const tdUser = document.createElement('td');
+                    tdUser.innerHTML = username;
+                    row.appendChild(tdUser);
+                    // for (const [key, value] of Object.entries(uservalue)) {
+                        const td = document.createElement('td');
+                        td.innerHTML = score;
+                        row.appendChild(td);
+                    // }
+                    bodyScoreBoard.appendChild(row);
+                });
+
+            }
+
+        }
+    };
 };
 
-ws.onmessage = function (event) {
-    const payload = JSON.parse(event.data)?.payload;
-    
-    if(payload === 'register' ){
-        userId = JSON.parse(event.data)?.user_id;
-    }
 
-};
 
 ws.onerror = function (error) {
     console.error("WebSocket Error: ", error);
@@ -39,15 +64,14 @@ function registerUser() {
 
 function getScores() {
     if (ws.readyState === WebSocket.OPEN) {
-        console.log("ok");
         ws.send(`/get-scores ${gameId}`);
     }
 }
 
 function setScore() {
-    // const userId = document.getElementById('userId').value;
     if (ws.readyState === WebSocket.OPEN) {
         ws.send(`/set-score ${userId}`);
+        ws.send(`/get-scores ${gameId}`);
     }
 }
 
@@ -66,7 +90,7 @@ class Block {
 
 const grid = document.querySelector('.grid');
 const scoreDisplay = document.querySelector('#score');
-const levelDisplay = document.querySelector('#level');
+// const levelDisplay = document.querySelector('#level');
 const bodyScoreBoard = document.querySelector('#scoreboard-body');
 
 const userName = document.querySelector('#username');
@@ -94,7 +118,7 @@ let score = 0;
 let level = 1;
 
 scoreDisplay.innerHTML = score;
-levelDisplay.innerHTML = level;
+// levelDisplay.innerHTML = level;
 
 // all blocks
 let blocks;
@@ -222,7 +246,7 @@ function checkForCollisions() {
                 level++;
                 // var ref = db.ref();
                 // ref.child(userName.value).child('level').set(level);
-                levelDisplay.innerHTML = level;
+                // levelDisplay.innerHTML = level;
                 clearInterval(timerId);
                 timerId = setInterval(moveBall, 30 / level);
                 addBlock();
@@ -252,7 +276,7 @@ function checkForCollisions() {
     // check for game over
     if (ballCurrentPosition[1] <= 0) {
         clearInterval(timerId);
-        scoreDisplay.innerHTML = 'You lose';
+        scoreDisplay.innerHTML = 'Game Over';
         document.removeEventListener('keydown', moveUser);
         restart.classList.remove('hide');
     }
@@ -283,37 +307,3 @@ function changeDirection() {
 
 }
 
-getUsersScores();
-
-function getUsersScores() {
-
-    getScores();
-    ws.onmessage = function (event) {
-        const payload = JSON.parse(event.data)?.payload;
-        console.log(event);
-        if(payload === 'get-scores' || payload === 'set-score' ){
-
-            bodyScoreBoard.innerHTML = '';
-            if (JSON.parse(event.data)?.data.length > 0) {
-
-                JSON.parse(event.data)?.data.forEach(({score, username}) => {
-                    const row = document.createElement('tr');
-                    const tdUser = document.createElement('td');
-                    tdUser.innerHTML = username;
-                    row.appendChild(tdUser);
-                    // for (const [key, value] of Object.entries(uservalue)) {
-                        const td = document.createElement('td');
-                        td.innerHTML = score;
-                        row.appendChild(td);
-                    // }
-                    bodyScoreBoard.appendChild(row);
-                });
-
-            }
-
-
-        }
-
-    };
-
-}
