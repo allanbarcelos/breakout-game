@@ -22,10 +22,10 @@ on:
       - main
 
 env:
-  REGISTRY: ghcr.io       # ou docker.io
-  IMAGE_NAME: ${{ github.event.repository.name }}  # Somente o nome do repositório
-  CONTAINER_NAME: app-container
-  NETWORK_NAME: app-network
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.actor }}/$${{ github.event.repository.name }}
+  CONTAINER_NAME: breakout-game
+  NETWORK_NAME: barcelos.dev
 
 jobs:
   build-and-push:
