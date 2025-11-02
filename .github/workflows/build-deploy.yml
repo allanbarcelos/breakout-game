@@ -1,31 +1,9 @@
-# ===============================
-# GitHub Secrets necessários:
-# ===============================
-# TOKEN: Token de acesso ao registry (GHCR ou Docker Hub)
-# SERVER_USER: Usuário SSH do servidor de deploy
-# SSH_KEY: Chave privada SSH para conectar no servidor
-# SSH_PORT: Porta SSH do servidor (geralmente 22)
-# HOST: Endereço IP ou hostname do servidor
-#
-# Variáveis de ambiente usadas:
-# REGISTRY: Registro de container (ghcr.io ou docker.io)
-# IMAGE_NAME: Nome da imagem Docker (usualmente o nome do repositório)
-# CONTAINER_NAME: Nome do container no servidor
-# NETWORK_NAME: Nome da rede Docker que o container usará
-# ===============================
-
 name: Build and Deploy Docker
 
 on:
   push:
     branches:
-      - main
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.actor }}/$${{ github.event.repository.name }}
-  CONTAINER_NAME: breakout-game
-  NETWORK_NAME: barcelos.dev
+      - main 
 
 jobs:
   build-and-push:
@@ -33,22 +11,22 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.TOKEN }}
 
       - name: Build Docker image
         run: |
-          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+          docker build -t ghcr.io/allanbarcelos/breakout-game:latest .
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ghcr.io/allanbarcelos/breakout-game:latest
 
   deploy:
     runs-on: ubuntu-latest
@@ -58,10 +36,6 @@ jobs:
       - name: Deploy via SSH with rollback
         uses: appleboy/ssh-action@v0.1.9
         env:
-          REGISTRY: ${{ env.REGISTRY }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
-          NETWORK_NAME: ${{ env.NETWORK_NAME }}
           TOKEN: ${{ secrets.TOKEN }}
           ACTOR: ${{ github.actor }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
@@ -70,60 +44,63 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: REGISTRY,IMAGE_NAME,CONTAINER_NAME,NETWORK_NAME,ACTOR,TOKEN,SERVER_USER
+          envs: ACTOR,TOKEN,SERVER_USER
           script: |
-            echo "=== Iniciando deploy ==="
+            CONTAINER_NAME=breakout-game
+            IMAGE_NAME=ghcr.io/allanbarcelos/breakout-game:latest
 
-            IMAGE=${REGISTRY}/${IMAGE_NAME}:latest
-            LOG_DIR=/home/${SERVER_USER}/${CONTAINER_NAME}/logs/nginx
-
-            mkdir -p $LOG_DIR
-
+            # Salva a última imagem em execução (rollback)
             LAST_IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
 
-            docker login $REGISTRY -u $ACTOR -p $TOKEN
-            docker pull $IMAGE
+            # Login no Docker Hub
+            docker login ghcr.io -u $ACTOR -p $TOKEN
 
+            # Puxa a nova imagem
+            docker pull $IMAGE_NAME
+
+            # Para e remove o container antigo
             docker stop $CONTAINER_NAME || true
             docker rm $CONTAINER_NAME || true
 
+            # Roda a nova imagem
             docker run -d \
               --name $CONTAINER_NAME \
               --restart unless-stopped \
-              --network $NETWORK_NAME \
-              -v $LOG_DIR:/var/log/nginx \
-              $IMAGE
+              --network barcelos.dev \
+              $IMAGE_NAME
 
-            echo "Aguardando inicialização do container..."
+            # Espera iniciar
+            echo "Aguardando container iniciar..."
             sleep 5
 
+            # Retry para verificar se o container está rodando
             RETRY=5
             while [ $RETRY -gt 0 ]; do
-              STATUS=$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
-              if [ "$STATUS" = "true" ]; then
+              CONTAINER_STATUS=$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
+              if [ "$CONTAINER_STATUS" = "true" ]; then
                 echo "Container iniciado com sucesso."
-                sudo systemctl restart nginx || true
+                sudo systemctl restart nginx
                 exit 0
               fi
-              echo "Tentando novamente... ($RETRY restantes)"
+              echo "Container ainda não iniciou. Tentativas restantes: $RETRY"
               RETRY=$((RETRY-1))
               sleep 2
             done
 
-            echo "Falha: container não iniciou."
+            # Se chegou aqui, o container não iniciou
+            echo "Falha: o container não está rodando."
             if [ -n "$LAST_IMAGE" ]; then
-              echo "Fazendo rollback..."
+              echo "Fazendo rollback para a última imagem..."
               docker stop $CONTAINER_NAME || true
               docker rm $CONTAINER_NAME || true
               docker run -d \
                 --name $CONTAINER_NAME \
                 --restart unless-stopped \
-                --network $NETWORK_NAME \
-                -v $LOG_DIR:/var/log/nginx \
+                --network barcelos.dev \
                 $LAST_IMAGE
-              sudo systemctl restart nginx || true
+              sudo systemctl restart nginx
               echo "Rollback concluído."
             else
-              echo "Nenhuma imagem anterior encontrada. Deploy abortado."
+              echo "Nenhuma imagem anterior encontrada. Deploy falhou."
               exit 1
             fi
