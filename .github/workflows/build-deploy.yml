@@ -1,62 +1,129 @@
-name: Deploy
+# ===============================
+# GitHub Secrets necessários:
+# ===============================
+# TOKEN: Token de acesso ao registry (GHCR ou Docker Hub)
+# SERVER_USER: Usuário SSH do servidor de deploy
+# SSH_KEY: Chave privada SSH para conectar no servidor
+# SSH_PORT: Porta SSH do servidor (geralmente 22)
+# HOST: Endereço IP ou hostname do servidor
+#
+# Variáveis de ambiente usadas:
+# REGISTRY: Registro de container (ghcr.io ou docker.io)
+# IMAGE_NAME: Nome da imagem Docker (usualmente o nome do repositório)
+# CONTAINER_NAME: Nome do container no servidor
+# NETWORK_NAME: Nome da rede Docker que o container usará
+# ===============================
+
+name: Build and Deploy Docker
 
 on:
   push:
     branches:
       - main
-  # schedule:
-  #   - cron: '0 0 * * *'
 
 env:
-  PRODUCTION: true
-  # HTTPS: true
-  # API: https://api.barcelos.dev
+  REGISTRY: ghcr.io       # ou docker.io
+  IMAGE_NAME: ${{ github.event.repository.name }}  # Somente o nome do repositório
+  CONTAINER_NAME: app-container
+  NETWORK_NAME: app-network
 
 jobs:
-  test-build-deploy:
-
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: GuillaumeFalourd/setup-rsync@v1.1
-
-      - name: Install SSH Key
-        uses: shimataro/ssh-key-action@v2
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
         with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: unnecessary
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.TOKEN }}
 
-      - name: Adding Known Hosts
-        run: ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }}  >> ~/.ssh/known_hosts
-
-      - name: Test SSH connection
-        run: ssh -T ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
-
-      - name: Delete OLD Folder
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            folder="${{secrets.HOME}}/breakout-game.barcelos.dev"
-            if [ -d "$folder" ]; then
-              rm -Rf ${{ secrets.HOME }}/breakout-game.barcelos.dev
-            fi
-
-      - name: Deploy with rsync
+      - name: Build Docker image
         run: |
-          rsync --progress -avz -e "ssh -v -i ~/.ssh/id_rsa" ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.HOME }}/breakout-game.barcelos.dev/
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
 
-      - name: Restart Nginx
-        uses: appleboy/ssh-action@master
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Deploy via SSH with rollback
+        uses: appleboy/ssh-action@v0.1.9
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          NETWORK_NAME: ${{ env.NETWORK_NAME }}
+          TOKEN: ${{ secrets.TOKEN }}
+          ACTOR: ${{ github.actor }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          envs: REGISTRY,IMAGE_NAME,CONTAINER_NAME,NETWORK_NAME,ACTOR,TOKEN,SERVER_USER
           script: |
-            systemctl restart nginx
+            echo "=== Iniciando deploy ==="
+
+            IMAGE=${REGISTRY}/${IMAGE_NAME}:latest
+            LOG_DIR=/home/${SERVER_USER}/${CONTAINER_NAME}/logs/nginx
+
+            mkdir -p $LOG_DIR
+
+            LAST_IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
+
+            docker login $REGISTRY -u $ACTOR -p $TOKEN
+            docker pull $IMAGE
+
+            docker stop $CONTAINER_NAME || true
+            docker rm $CONTAINER_NAME || true
+
+            docker run -d \
+              --name $CONTAINER_NAME \
+              --restart unless-stopped \
+              --network $NETWORK_NAME \
+              -v $LOG_DIR:/var/log/nginx \
+              $IMAGE
+
+            echo "Aguardando inicialização do container..."
+            sleep 5
+
+            RETRY=5
+            while [ $RETRY -gt 0 ]; do
+              STATUS=$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
+              if [ "$STATUS" = "true" ]; then
+                echo "Container iniciado com sucesso."
+                sudo systemctl restart nginx || true
+                exit 0
+              fi
+              echo "Tentando novamente... ($RETRY restantes)"
+              RETRY=$((RETRY-1))
+              sleep 2
+            done
+
+            echo "Falha: container não iniciou."
+            if [ -n "$LAST_IMAGE" ]; then
+              echo "Fazendo rollback..."
+              docker stop $CONTAINER_NAME || true
+              docker rm $CONTAINER_NAME || true
+              docker run -d \
+                --name $CONTAINER_NAME \
+                --restart unless-stopped \
+                --network $NETWORK_NAME \
+                -v $LOG_DIR:/var/log/nginx \
+                $LAST_IMAGE
+              sudo systemctl restart nginx || true
+              echo "Rollback concluído."
+            else
+              echo "Nenhuma imagem anterior encontrada. Deploy abortado."
+              exit 1
+            fi

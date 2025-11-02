@@ -2,45 +2,84 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Breakout Game</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 
-<body>
-    User name: <input type="text" id="username" maxlength="5" /> <button id="buttonStart" onclick="start()">Start</button>
-    Score: <span id="score"></span>
-    Level: <span id="level"></span>
-    <a id="restart" class="hide" href onclick="location.reload()">Restart</a>
-    <div class="grid"></div>
+<body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen flex items-center p-6">
 
-    <table id="scoreboard" border="1">
-        <thead>
-            <tr>
-                <td>User</td>
-                <!-- <td>Level</td> -->
-                <td>Score</td>
-            </tr>
-        </thead>
-        <tbody id="scoreboard-body">
+    <div class="flex-1 pr-80 max-w-full">
+        <div class="max-w-3xl mx-auto space-y-6">
+            <div class="text-center space-y-4">
+                <h1 class="text-4xl font-bold text-gray-800">Breakout Game</h1>
+                <div class="flex justify-center items-center gap-3 flex-wrap">
+                    <label class="text-lg font-medium text-gray-700">User name:</label>
+                    <input type="text" id="username" maxlength="5"
+                        class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                        placeholder="Max 5 chars" />
+                    <button id="buttonStart" onclick="start()"
+                        class="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg shadow-md hover:from-purple-700 hover:to-pink-700 transform hover:scale-105 transition">
+                        Start
+                    </button>
+                </div>
+                <div class="flex justify-center gap-6 text-lg font-medium text-gray-700">
+                    <span>Score: <span id="score" class="text-purple-600 font-bold">0</span></span>
+                    <span>Level: <span id="level" class="text-purple-600 font-bold">1</span></span>
+                </div>
+                <a id="restart" class="hidden inline-block mt-4 text-red-600 font-semibold hover:text-red-800 underline"
+                    href="#" onclick="location.reload()">
+                    Restart Game
+                </a>
+            </div>
 
-        </tbody>
-    </table>
+            <div class="flex justify-center">
+                <div class="grid">
+                    <div id="neonMessage"
+                        class="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                        <div class="text-2xl md:text-3xl font-bold tracking-wider">
+                            <span class="drop-shadow-soft-neon">PRESS START TO BEGIN</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-    <ul>
-        <li>Type your name in "User name"</li>
-        <li>Press "Start"</li>
-        <li>Controll the base/platform with "Arrow Keys"</li>
-    </ul>
+            <div class="bg-white p-6 rounded-xl shadow-lg max-w-md mx-auto">
+                <h3 class="font-bold text-lg text-gray-800 mb-2">How to Play:</h3>
+                <ul class="list-disc list-inside text-gray-600 space-y-1 text-sm">
+                    <li>Type your name (max 5 letters)</li>
+                    <li>Press "Start" to begin</li>
+                    <li>Use Left/Right Arrow Keys to move</li>
+                </ul>
+            </div>
+        </div>
+    </div>
 
+    <div
+        class="fixed right-0 top-0 h-screen w-80 bg-white/95 backdrop-blur-sm shadow-2xl border-l border-gray-200 flex flex-col">
+        <div class="p-6 border-b border-gray-200">
+            <h3 class="text-xl font-bold text-gray-800 text-center">Top Scores</h3>
+        </div>
+        <div class="flex-1 overflow-y-auto p-0">
+            <table id="scoreboard" class="w-full table-auto border-collapse text-sm">
+                <thead>
+                    <tr class="bg-gradient-to-r from-purple-600 to-pink-600 text-white sticky top-0">
+                        <th class="px-4 py-3 text-left font-semibold">User</th>
+                        <th class="px-4 py-3 text-left font-semibold">Score</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreboard-body" class="divide-y divide-gray-200">
+                    <!-- Preenchido via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-database.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.2.5/firebase-firestore.js"></script>
-
-    <script src="index.js"></script>
+    <script src="/static/script.js"></script>
 </body>
 
 </html>
