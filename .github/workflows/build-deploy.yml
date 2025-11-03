@@ -135,15 +135,16 @@ jobs:
         uses: appleboy/ssh-action@v0.1.9
         env:
           SSH_USR: ${{ secrets.SSH_USR }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           host: ${{ secrets.SSH_HST }}
           username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PRT }}
-          envs: GH_ACTR,DK_IMGE,DK_CNTR,DK_NETW,SSH_USR
+          envs: GH_ACTR,DK_IMGE,DK_CNTR,DK_NETW,SSH_USR,GH_TOKEN
           script: |
             echo "🔐 Logging in to GitHub Container Registry..."
-            docker login ghcr.io -u "$GH_ACTR" -p "$GITHUB_TOKEN"
+            docker login ghcr.io -u "$GH_ACTR" -p "$GH_TOKEN"
 
             echo "📦 Pulling new image..."
             docker pull "$DK_IMGE"
