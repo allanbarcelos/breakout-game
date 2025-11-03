@@ -35,4 +35,4 @@ RUN npm rebuild
 EXPOSE 80
 
 # CMD usando PM2 para rodar o backend e Nginx
-CMD sh -c "nginx && pm2-runtime start server.js --no-daemon"
+CMD sh -c "nginx && pm2-runtime start server.js"
