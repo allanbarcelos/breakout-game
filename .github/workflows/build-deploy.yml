@@ -1,106 +1,202 @@
-name: Build and Deploy Docker
+# -----------------------------------------------------------------------------
+# GitHub Actions Workflow: Build and Deploy Docker
+#
+# This workflow automates building, pushing, and deploying a Docker container
+# whenever changes are pushed to the main branch.
+#
+# Workflow Steps:
+# 1. Set Environment Variables:
+#    - Defines Docker image, container name, network, and GitHub actor.
+#
+# 2. Build and Push Docker Image:
+#    - Logs into GitHub Container Registry.
+#    - Builds the Docker image.
+#    - Pushes the Docker image to GHCR.
+#
+# 3. Deploy:
+#    - Ensures the Docker network exists on the remote server.
+#    - Saves the previous container image for rollback purposes.
+#    - Pulls the new image and deploys it as a Docker container.
+#    - Restarts Nginx if deployment succeeds.
+#    - Automatically rolls back to the previous image on failure.
+#
+# Secrets required:
+# - GH_TOKEN: GitHub token with permission to push Docker images.
+# - SSH_HST: Remote server host.
+# - SSH_USR: SSH username.
+# - SSH_KEY: SSH private key.
+# - SSH_PRT: SSH port.
+# -----------------------------------------------------------------------------
+
+
+name: Build and Deploy
 
 on:
   push:
     branches:
-      - main 
+      - main
 
 jobs:
-  build-and-push:
+  set-environment:
     runs-on: ubuntu-latest
+    outputs:
+      DK_IMGE: ${{ steps.set-env.outputs.DK_IMGE }}
+      DK_CNTR: ${{ steps.set-env.outputs.DK_CNTR }}
+      DK_NETW: ${{ steps.set-env.outputs.DK_NETW }}
+      GH_ACTR: ${{ steps.set-env.outputs.GH_ACTR }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
+      - name: Set environment variables
+        id: set-env
+        run: |
+          echo "DK_IMGE=ghcr.io/${GITHUB_REPOSITORY}:latest" >> $GITHUB_OUTPUT
+          echo "DK_CNTR=${GITHUB_REPOSITORY##*/}" >> $GITHUB_OUTPUT
+          echo "DK_NETW=barcelos.dev" >> $GITHUB_OUTPUT
+          echo "GH_ACTR=${GITHUB_ACTOR}" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: set-environment
+    env:
+      DK_IMGE: ${{ needs.set-environment.outputs.DK_IMGE }}
+      GH_ACTR: ${{ needs.set-environment.outputs.GH_ACTR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.TOKEN }}
+          username: ${{ env.GH_ACTR }}
+          password: ${{ secrets.GH_TOKEN }}
 
       - name: Build Docker image
-        run: |
-          docker build -t ghcr.io/allanbarcelos/breakout-game:latest .
+        run: docker build -t ${{ env.DK_IMGE }} .
 
       - name: Push Docker image
-        run: |
-          docker push ghcr.io/allanbarcelos/breakout-game:latest
+        run: docker push ${{ env.DK_IMGE }}
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [set-environment, build-and-push]
+    env:
+      DK_IMGE: ${{ needs.set-environment.outputs.DK_IMGE }}
+      DK_CNTR: ${{ needs.set-environment.outputs.DK_CNTR }}
+      DK_NETW: ${{ needs.set-environment.outputs.DK_NETW }}
+      GH_ACTR: ${{ needs.set-environment.outputs.GH_ACTR }}
 
     steps:
-      - name: Deploy via SSH with rollback
+      - name: Debug SSH host
+        run: echo "SSH_HST=${{ env.SSH_HST }}"
+
+      - name: Ensure Docker network exists
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          host: ${{ secrets.SSH_HST }}
+          username: ${{ secrets.SSH_USR }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PRT }}
+          envs: DK_NETW
+          script: |
+            echo "🔍 Checking Docker network..."
+            if docker network ls | grep -q "$DK_NETW"; then
+              echo "✅ Network '$DK_NETW' already exists."
+            else
+              echo "📦 Creating network '$DK_NETW'..."
+              docker network create "$DK_NETW"
+              echo "✅ Network '$DK_NETW' created successfully."
+            fi
+
+      - name: Save previous image for rollback
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          host: ${{ secrets.SSH_HST }}
+          username: ${{ secrets.SSH_USR }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PRT }}
+          envs: DK_CNTR
+          script: |
+            echo "Saving previous image for rollback..."
+            LAST_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$DK_CNTR" 2>/dev/null || echo "")
+            if [ -n "$LAST_IMAGE" ]; then
+              echo "LAST_IMAGE=$LAST_IMAGE" > /tmp/rollback.env
+              echo "Previous image: $LAST_IMAGE"
+            else
+              echo "No previous container found."
+              echo "LAST_IMAGE=" > /tmp/rollback.env
+            fi
+
+      - name: Deploy new container
+        id: deploy
         uses: appleboy/ssh-action@v0.1.9
         env:
-          TOKEN: ${{ secrets.TOKEN }}
-          ACTOR: ${{ github.actor }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_USR: ${{ secrets.SSH_USR }}
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.SERVER_USER }}
+          host: ${{ secrets.SSH_HST }}
+          username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          envs: ACTOR,TOKEN,SERVER_USER
+          port: ${{ secrets.SSH_PRT }}
+          envs: GH_ACTR,DK_IMGE,DK_CNTR,DK_NETW,SSH_USR
           script: |
-            CONTAINER_NAME=breakout-game
-            IMAGE_NAME=ghcr.io/allanbarcelos/breakout-game:latest
+            echo "🔐 Logging in to GitHub Container Registry..."
+            docker login ghcr.io -u "$GH_ACTR" -p "$GITHUB_TOKEN"
 
-            # Salva a última imagem em execução (rollback)
-            LAST_IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER_NAME 2>/dev/null || echo "")
+            echo "📦 Pulling new image..."
+            docker pull "$DK_IMGE"
 
-            # Login no Docker Hub
-            docker login ghcr.io -u $ACTOR -p $TOKEN
+            echo "🛑 Stopping old container..."
+            docker stop "$DK_CNTR" 2>/dev/null || true
+            docker rm "$DK_CNTR" 2>/dev/null || true
 
-            # Puxa a nova imagem
-            docker pull $IMAGE_NAME
-
-            # Para e remove o container antigo
-            docker stop $CONTAINER_NAME || true
-            docker rm $CONTAINER_NAME || true
-
-            # Roda a nova imagem
+            echo "🚀 Starting new container..."
             docker run -d \
-              --name $CONTAINER_NAME \
+              --name "$DK_CNTR" \
               --restart unless-stopped \
-              --network barcelos.dev \
-              $IMAGE_NAME
+              --network "$DK_NETW" \
+              -v /home/$SSH_USR/$DK_CNTR/logs/nginx:/var/log/nginx \
+              "$DK_IMGE"
 
-            # Espera iniciar
-            echo "Aguardando container iniciar..."
+            echo "⏳ Waiting for container to start..."
             sleep 5
-
-            # Retry para verificar se o container está rodando
-            RETRY=5
-            while [ $RETRY -gt 0 ]; do
-              CONTAINER_STATUS=$(docker inspect -f '{{.State.Running}}' $CONTAINER_NAME 2>/dev/null || echo "false")
-              if [ "$CONTAINER_STATUS" = "true" ]; then
-                echo "Container iniciado com sucesso."
-                sudo systemctl restart nginx
-                exit 0
-              fi
-              echo "Container ainda não iniciou. Tentativas restantes: $RETRY"
-              RETRY=$((RETRY-1))
-              sleep 2
-            done
-
-            # Se chegou aqui, o container não iniciou
-            echo "Falha: o container não está rodando."
-            if [ -n "$LAST_IMAGE" ]; then
-              echo "Fazendo rollback para a última imagem..."
-              docker stop $CONTAINER_NAME || true
-              docker rm $CONTAINER_NAME || true
-              docker run -d \
-                --name $CONTAINER_NAME \
-                --restart unless-stopped \
-                --network barcelos.dev \
-                $LAST_IMAGE
+            if docker inspect -f '{{.State.Running}}' "$DK_CNTR" | grep -q true; then
+              echo "✅ Container started successfully."
               sudo systemctl restart nginx
-              echo "Rollback concluído."
             else
-              echo "Nenhuma imagem anterior encontrada. Deploy falhou."
+              echo "❌ Deployment failed — initiating rollback."
+              exit 1
+            fi
+
+      - name: Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v0.1.9
+        env:
+          SSH_USR: ${{ secrets.SSH_USR }}
+        with:
+          host: ${{ secrets.SSH_HST }}
+          username: ${{ secrets.SSH_USR }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PRT }}
+          envs: DK_CNTR,DK_NETW,SSH_USR
+          script: |
+            echo "🔄 Starting rollback..."
+            source /tmp/rollback.env || { echo "No rollback file found."; exit 1; }
+            if [ -n "$LAST_IMAGE" ]; then
+              echo "Restoring previous image: $LAST_IMAGE"
+              docker stop "$DK_CNTR" 2>/dev/null || true
+              docker rm "$DK_CNTR" 2>/dev/null || true
+              docker run -d \
+                --name "$DK_CNTR" \
+                --restart unless-stopped \
+                --network "$DK_NETW" \
+                -v /home/$SSH_USR/$DK_CNTR/logs/nginx:/var/log/nginx \
+                "$LAST_IMAGE"
+              sudo systemctl restart nginx
+              echo "✅ Rollback completed successfully."
+            else
+              echo "❌ No previous image available for rollback."
               exit 1
             fi
