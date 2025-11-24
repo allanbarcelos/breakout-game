@@ -1,8 +1,13 @@
 // WebSocket connection
 function createWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const pathParts = window.location.pathname.split('/');
+    pathParts.pop();
+    const basePath = pathParts.join('/');
+
     
+    const wsUrl = `${protocol}//${window.location.origin.replace(/^https?:\/\//, '')}${basePath}/ws`;
+
     let ws = new WebSocket(wsUrl);
     setupWebSocketHandlers(ws);
     return ws;
@@ -276,8 +281,8 @@ function updateScoreboard(scores) {
         `;
 
         const medal = i === 0 ? 'bg-yellow-400 text-yellow-900' :
-                     i === 1 ? 'bg-gray-400 text-gray-900' :
-                     i === 2 ? 'bg-orange-600 text-white' : '';
+            i === 1 ? 'bg-gray-400 text-gray-900' :
+                i === 2 ? 'bg-orange-600 text-white' : '';
 
         const rank = i < 3
             ? `<span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${medal}">
