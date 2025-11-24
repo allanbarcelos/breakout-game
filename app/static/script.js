@@ -1,6 +1,14 @@
-// WebSocket com protocolo correto (http/ws ou https/wss)
-const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-let ws = new WebSocket(`./ws/`);
+// WebSocket connection
+function createWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    
+    let ws = new WebSocket(wsUrl);
+    setupWebSocketHandlers(ws);
+    return ws;
+}
+
+let ws = createWebSocket();
 
 let userId = null;
 let currentUsername = '';
