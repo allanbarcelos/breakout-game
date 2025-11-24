@@ -1,203 +1,285 @@
-# -----------------------------------------------------------------------------
-# GitHub Actions Workflow: Build and Deploy Docker
-#
-# This workflow automates building, pushing, and deploying a Docker container
-# whenever changes are pushed to the main branch.
-#
-# Workflow Steps:
-# 1. Set Environment Variables:
-#    - Defines Docker image, container name, network, and GitHub actor.
-#
-# 2. Build and Push Docker Image:
-#    - Logs into GitHub Container Registry.
-#    - Builds the Docker image.
-#    - Pushes the Docker image to GHCR.
-#
-# 3. Deploy:
-#    - Ensures the Docker network exists on the remote server.
-#    - Saves the previous container image for rollback purposes.
-#    - Pulls the new image and deploys it as a Docker container.
-#    - Restarts Nginx if deployment succeeds.
-#    - Automatically rolls back to the previous image on failure.
-#
-# Secrets required:
-# - GH_TOKEN: GitHub token with permission to push Docker images.
-# - SSH_HST: Remote server host.
-# - SSH_USR: SSH username.
-# - SSH_KEY: SSH private key.
-# - SSH_PRT: SSH port.
-# -----------------------------------------------------------------------------
-
-
-name: Build and Deploy
+# .github/workflows/build-deploy.yml
+name: Build & Deploy Battleship Game
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
-  set-environment:
+  discover-services:
     runs-on: ubuntu-latest
     outputs:
-      DK_IMGE: ${{ steps.set-env.outputs.DK_IMGE }}
-      DK_CNTR: ${{ steps.set-env.outputs.DK_CNTR }}
-      DK_NETW: ${{ steps.set-env.outputs.DK_NETW }}
-      GH_ACTR: ${{ steps.set-env.outputs.GH_ACTR }}
-
+      services: ${{ steps.find.outputs.services }}
+      main_service: ${{ steps.find.outputs.main_service }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set environment variables
-        id: set-env
+      - name: Discover Dockerfiles & Determine Main Service
+        id: find
         run: |
-          echo "DK_IMGE=ghcr.io/${GITHUB_REPOSITORY}:latest" >> $GITHUB_OUTPUT
-          echo "DK_CNTR=${GITHUB_REPOSITORY##*/}" >> $GITHUB_OUTPUT
-          echo "DK_NETW=barcelos.dev" >> $GITHUB_OUTPUT
-          echo "GH_ACTR=${GITHUB_ACTOR}" >> $GITHUB_OUTPUT
+          # Find all service directories containing Dockerfile (exclude root if only for multi-stage)
+          SERVICES=$(find . -name Dockerfile -type f | sed 's|/Dockerfile||' | sed 's|^\./||' | grep -v '^$' | sort)
+          
+          # Always prefer 'web' as main service if it exists
+          MAIN_SERVICE=""
+          if echo "$SERVICES" | grep -q "^.$"; then
+            MAIN_SERVICE="."
+          elif echo "$SERVICES" | grep -q "^web$"; then
+            MAIN_SERVICE="web"
+          elif echo "$SERVICES" | grep -q "^api$"; then
+            MAIN_SERVICE="api"
+          elif [ -n "$SERVICES" ]; then
+            MAIN_SERVICE=$(echo "$SERVICES" | head -n1)
+          fi
+
+          SERVICES_JSON=$(echo "$SERVICES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "services=$SERVICES_JSON" >> $GITHUB_OUTPUT
+          echo "main_service=$MAIN_SERVICE" >> $GITHUB_OUTPUT
+          echo "Found services: $SERVICES_JSON"
+          echo "Main exposed service: $MAIN_SERVICE"
+
+  set-env:
+    runs-on: ubuntu-latest
+    needs: discover-services
+    outputs:
+      repo_name: ${{ steps.set.outputs.repo_name }}
+      repo_network: ${{ steps.set.outputs.repo_network }}
+      gh_actor: ${{ steps.set.outputs.gh_actor }}
+      services: ${{ needs.discover-services.outputs.services }}
+      main_service: ${{ needs.discover-services.outputs.main_service }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        run: |
+          REPO_NAME=${GITHUB_REPOSITORY##*/}
+          echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "repo_network=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "gh_actor=${GITHUB_ACTOR}" >> $GITHUB_OUTPUT
 
   build-and-push:
+    needs: [discover-services, set-env]
     runs-on: ubuntu-latest
-    needs: set-environment
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.services) }}
     env:
-      DK_IMGE: ${{ needs.set-environment.outputs.DK_IMGE }}
-      GH_ACTR: ${{ needs.set-environment.outputs.GH_ACTR }}
+      REPO_NAME: ${{ needs.set-env.outputs.repo_name }}
+      GH_ACTOR: ${{ needs.set-env.outputs.gh_actor }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ env.GH_ACTR }}
+          username: ${{ env.GH_ACTOR }}
           password: ${{ secrets.GH_TOKEN }}
 
-      - name: Build Docker image
-        run: docker build -t ${{ env.DK_IMGE }} .
+      - name: Build and Push ${{ matrix.service }}
+        run: |
+          SERVICE="${{ matrix.service }}"
+          if [ "$SERVICE" = "." ]; then
+            IMAGE_NAME="ghcr.io/${{ github.repository }}:latest"
+          else
+            IMAGE_NAME="ghcr.io/${{ github.repository }}-${SERVICE}:latest"
+          fi
 
-      - name: Push Docker image
-        run: docker push ${{ env.DK_IMGE }}
+          echo "Building $SERVICE → $IMAGE_NAME"
+          docker build -t "$IMAGE_NAME" "./$SERVICE"
+
+          echo "Pushing $IMAGE_NAME"
+          docker push "$IMAGE_NAME"
+
+          echo "SERVICE_${SERVICE}_IMAGE=$IMAGE_NAME" >> $GITHUB_ENV
 
   deploy:
+    needs: [discover-services, set-env, build-and-push]
     runs-on: ubuntu-latest
-    needs: [set-environment, build-and-push]
     env:
-      DK_IMGE: ${{ needs.set-environment.outputs.DK_IMGE }}
-      DK_CNTR: ${{ needs.set-environment.outputs.DK_CNTR }}
-      DK_NETW: ${{ needs.set-environment.outputs.DK_NETW }}
-      GH_ACTR: ${{ needs.set-environment.outputs.GH_ACTR }}
+      REPO_NAME: ${{ needs.set-env.outputs.repo_name }}
+      REPO_NETWORK: ${{ needs.set-env.outputs.repo_network }}
+      MAIN_SERVICE: ${{ needs.discover-services.outputs.main_service }}
+      SERVICES_JSON: ${{ needs.discover-services.outputs.services }}
 
     steps:
-      - name: Debug SSH host
-        run: echo "SSH_HST=${{ env.SSH_HST }}"
-
-      - name: Ensure Docker network exists
-        uses: appleboy/ssh-action@v0.1.9
+      - name: Ensure Docker Networks Exist
+        uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SSH_HST }}
           username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PRT }}
-          envs: DK_NETW
+          envs: REPO_NETWORK
           script: |
-            echo "🔍 Checking Docker network..."
-            if docker network ls | grep -q "$DK_NETW"; then
-              echo "✅ Network '$DK_NETW' already exists."
-            else
-              echo "📦 Creating network '$DK_NETW'..."
-              docker network create "$DK_NETW"
-              echo "✅ Network '$DK_NETW' created successfully."
+            if ! docker network ls --format "{{.Name}}" | grep -q "^barcelos\.dev$"; then
+              echo "Creating network: barcelos.dev"
+              docker network create barcelos.dev
+            fi
+            if ! docker network ls --format "{{.Name}}" | grep -q "^${REPO_NETWORK}$"; then
+              echo "Creating network: ${REPO_NETWORK}"
+              docker network create ${REPO_NETWORK}
             fi
 
-      - name: Save previous image for rollback
-        uses: appleboy/ssh-action@v0.1.9
+      - name: Save Current Images for Rollback
+        uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SSH_HST }}
           username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PRT }}
-          envs: DK_CNTR
+          envs: REPO_NAME
           script: |
-            echo "Saving previous image for rollback..."
-            LAST_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$DK_CNTR" 2>/dev/null || echo "")
-            if [ -n "$LAST_IMAGE" ]; then
-              echo "LAST_IMAGE=$LAST_IMAGE" > /tmp/rollback.env
-              echo "Previous image: $LAST_IMAGE"
-            else
-              echo "No previous container found."
-              echo "LAST_IMAGE=" > /tmp/rollback.env
-            fi
+            echo "Saving current images for rollback..."
+            > /tmp/rollback_${REPO_NAME}.env
+            for container in $(docker ps -a --filter "name=${REPO_NAME}" --format "{{.Names}}"); do
+              image=$(docker inspect --format='{{.Image}}' "$container" 2>/dev/null || echo "")
+              if [ -n "$image" ]; then
+                echo "$container=$image" >> /tmp/rollback_${REPO_NAME}.env
+                echo "Saved: $container → $image"
+              fi
+            done
 
-      - name: Deploy new container
+      - name: Deploy All Services
         id: deploy
-        uses: appleboy/ssh-action@v0.1.9
+        uses: appleboy/ssh-action@v0.1.10
         env:
-          SSH_USR: ${{ secrets.SSH_USR }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SERVICES_JSON: ${{ needs.discover-services.outputs.services }}
+          REPO_NAME: ${{ needs.set-env.outputs.repo_name }}
+          MAIN_SERVICE: ${{ needs.discover-services.outputs.main_service }}
         with:
           host: ${{ secrets.SSH_HST }}
           username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PRT }}
-          envs: GH_ACTR,DK_IMGE,DK_CNTR,DK_NETW,SSH_USR,GH_TOKEN
+          envs: GH_TOKEN, SERVICES_JSON, REPO_NAME, MAIN_SERVICE
           script: |
-            echo "🔐 Logging in to GitHub Container Registry..."
-            docker login ghcr.io -u "$GH_ACTR" -p "$GH_TOKEN"
+            echo "$GH_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            echo "📦 Pulling new image..."
-            docker pull "$DK_IMGE"
+            SERVICES=($(echo "$SERVICES_JSON" | jq -r '.[]'))
 
-            echo "🛑 Stopping old container..."
-            docker stop "$DK_CNTR" 2>/dev/null || true
-            docker rm "$DK_CNTR" 2>/dev/null || true
+            echo "Stopping old containers..."
+            
+            echo "Stopping only relevant containers..."
+            for service in "${SERVICES[@]}"; do
+              if [ $service = "." ]; then
+                NAME="${REPO_NAME}"
+              else
+                NAME="${REPO_NAME}-${service}"
+              fi
+              
+              echo "Checking $NAME..."
 
-            echo "🚀 Starting new container..."
-            docker run -d \
-              --name "$DK_CNTR" \
-              --restart unless-stopped \
-              --network "$DK_NETW" \
-              -v /home/$SSH_USR/$DK_CNTR/logs/nginx:/var/log/nginx \
-              "$DK_IMGE"
+              if docker ps -a --format "{{.Names}}" | grep -q "^${NAME}$"; then
+                echo "Stopping $NAME"
+                docker stop "$NAME" || true
+                docker rm "$NAME" || true
+              else
+                echo "$NAME not running."
+              fi
+            done
 
-            echo "⏳ Waiting for container to start..."
-            sleep 5
-            if docker inspect -f '{{.State.Running}}' "$DK_CNTR" | grep -q true; then
-              echo "✅ Container started successfully."
-              sudo systemctl restart nginx
-            else
-              echo "❌ Deployment failed — initiating rollback."
+            echo "Starting new containers..."
+            for service in "${SERVICES[@]}"; do
+
+              if [ $service = "." ]; then
+                IMAGE="ghcr.io/${{ github.repository }}:latest"
+                CONTAINER_NAME="$REPO_NAME"
+              else
+                IMAGE="ghcr.io/${{ github.repository }}-$service:latest"
+                CONTAINER_NAME="$REPO_NAME-$service"
+              fi
+
+              echo "Pulling $IMAGE"
+              docker pull "$IMAGE"
+
+              CMD="docker run -d --name $CONTAINER_NAME --restart unless-stopped"
+
+              # All services on internal network
+              CMD="$CMD --network $REPO_NAME"
+
+              # Give API a stable hostname for Nginx
+              if [ "$service" = "api" ]; then
+                CMD="$CMD --network-alias api"
+              fi
+
+              # Only the web container is exposed publicly
+              if [ "$service" = "$MAIN_SERVICE" ]; then
+                CMD="$CMD --network barcelos.dev"
+                CMD="$CMD --network-alias $REPO_NAME"
+                CMD="$CMD -v /home/${{ secrets.SSH_USR }}/$REPO_NAME/logs/nginx:/var/log/nginx"
+              fi
+
+              CMD="$CMD $IMAGE"
+              echo "Running: $CMD"
+              eval "$CMD" || echo "Failed to start $CONTAINER_NAME"
+            done
+
+            echo "Waiting for containers to stabilize..."
+            sleep 15
+
+            # Final check
+            FAILED=false
+            for service in "${SERVICES[@]}"; do
+
+
+              if [ $service = "." ]; then
+                if ! docker ps --filter "name=$REPO_NAME" --filter "status=running" --format "{{.Names}}" | grep -q .; then
+                  echo "$REPO_NAME failed to start"
+                  FAILED=true
+                else
+                  echo "$REPO_NAME is running"
+                fi
+              else
+                if ! docker ps --filter "name=$REPO_NAME-$service" --filter "status=running" --format "{{.Names}}" | grep -q .; then
+                  echo "$REPO_NAME-$service failed to start"
+                  FAILED=true
+                else
+                  echo "$REPO_NAME-$service is running"
+                fi
+              fi
+
+            done
+
+            if [ "$FAILED" = "true" ]; then
+              echo "Deployment failed!"
               exit 1
+            else
+              echo "Deployment successful!"
+              sudo systemctl restart nginx
             fi
 
-      - name: Rollback on failure
+      - name: Rollback on Failure
         if: failure()
-        uses: appleboy/ssh-action@v0.1.9
-        env:
-          SSH_USR: ${{ secrets.SSH_USR }}
+        uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SSH_HST }}
           username: ${{ secrets.SSH_USR }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PRT }}
-          envs: DK_CNTR,DK_NETW,SSH_USR
+          envs: REPO_NAME
           script: |
-            echo "🔄 Starting rollback..."
-            source /tmp/rollback.env || { echo "No rollback file found."; exit 1; }
-            if [ -n "$LAST_IMAGE" ]; then
-              echo "Restoring previous image: $LAST_IMAGE"
-              docker stop "$DK_CNTR" 2>/dev/null || true
-              docker rm "$DK_CNTR" 2>/dev/null || true
-              docker run -d \
-                --name "$DK_CNTR" \
-                --restart unless-stopped \
-                --network "$DK_NETW" \
-                -v /home/$SSH_USR/$DK_CNTR/logs/nginx:/var/log/nginx \
-                "$LAST_IMAGE"
-              sudo systemctl restart nginx
-              echo "✅ Rollback completed successfully."
-            else
-              echo "❌ No previous image available for rollback."
+            echo "ROLLING BACK..."
+            if [ ! -f /tmp/rollback_${REPO_NAME}.env ]; then
+              echo "No rollback info found!"
               exit 1
             fi
+
+            docker ps -a --filter "name=${REPO_NAME}" --format "{{.Names}}" | xargs -r docker stop
+            docker ps -a --filter "name=${REPO_NAME}" --format "{{.Names}}" | xargs -r docker rm
+
+            while IFS='=' read -r name image; do
+              [[ -z "$name" || -z "$image" ]] && continue
+              echo "Restoring $name from $image"
+              docker run -d --name "$name" --restart unless-stopped \
+                --network $REPO_NAME \
+                $(echo "$name" | grep -q "$MAIN_SERVICE" && echo "--network barcelos.dev -p 80:80") \
+                "$image" || true
+            done < /tmp/rollback_${REPO_NAME}.env
+
+            sudo systemctl restart nginx
+            echo "Rollback completed."
