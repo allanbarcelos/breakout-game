@@ -3,24 +3,13 @@ function createWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const pathParts = window.location.pathname.split('/');
     pathParts.pop();
-    const basePath = pathParts.join('/') || '/';
+    const basePath = pathParts.join('/');
 
-    const wsUrl = `${protocol}//${window.location.host}${basePath}/ws`;
-    const ws = new WebSocket(wsUrl);
     
-    // Re-apply all handlers
-    ws.onopen = () => {
-        console.log("WebSocket connected");
-        getScores();
-        // Re-register if we already had a username
-        if (currentUsername && userId) {
-            setTimeout(() => ws.send(`/register ${currentUsername} ${gameId}`), 500);
-        }
-    };
-    ws.onmessage = handleWebSocketMessage; // extract to function
-    ws.onerror = (err) => console.error("WS Error:", err);
-    ws.onclose = () => setTimeout(() => ws = createWebSocket(), 3000);
+    const wsUrl = `${protocol}//${window.location.origin.replace(/^https?:\/\//, '')}${basePath}/ws`;
 
+    let ws = new WebSocket(wsUrl);
+    setupWebSocketHandlers(ws);
     return ws;
 }
 
