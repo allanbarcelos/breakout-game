@@ -1,19 +1,12 @@
-// WebSocket connection
-function createWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const pathParts = window.location.pathname.split('/');
-    pathParts.pop();
-    const basePath = pathParts.join('/');
+// WebSocket com protocolo correto (http/ws ou https/wss)
+const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
 
-    
-    const wsUrl = `${protocol}//${window.location.origin.replace(/^https?:\/\//, '')}${basePath}/ws`;
+const pathParts = window.location.pathname.split('/');
+pathParts.pop();
+const basePath = pathParts.join('/');
+const wsUrl = `${protocol}//${window.location.origin.replace(/^https?:\/\//, '')}${basePath}/ws`;
 
-    let ws = new WebSocket(wsUrl);
-    setupWebSocketHandlers(ws);
-    return ws;
-}
-
-let ws = createWebSocket();
+let ws = new WebSocket();
 
 let userId = null;
 let currentUsername = '';
